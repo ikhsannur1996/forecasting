@@ -1,0 +1,10 @@
+services:
+  api:
+    build: .
+    image: atm-cash-forecast-api:latest
+    container_name: atm-cash-forecast-api
+    ports:
+      - "8003:8000"   # 8000 credit default, 8001 segmentasi, 8002 valuasi properti, 8003 forecasting ATM
+    environment:
+      - LOG_LEVEL=INFO
+    restart: unless-stopped

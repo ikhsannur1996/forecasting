@@ -1,0 +1,12 @@
+# Untuk generate data, notebook & testing
+-r requirements.txt
+scikit-learn==1.9.1
+statsmodels==0.15.0
+scipy==1.18.0
+joblib==1.6.0
+jupyter
+nbformat
+matplotlib==3.11.2
+seaborn==0.13.2
+pytest==9.0.3
+httpx==0.28.1

@@ -1,0 +1,14 @@
+notebooks/
+tests/
+data/
+scripts/
+**/__pycache__/
+**/*.pyc
+.ipynb_checkpoints/
+.pytest_cache/
+.venv/
+venv/
+.git/
+*.md
+sample_*.json
+requirements-dev.txt
