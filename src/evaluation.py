@@ -104,3 +104,60 @@ def segment_bias(df: pd.DataFrame, by: str) -> pd.DataFrame:
     out = pd.DataFrame(rows).set_index(by)
     out["p_holm"] = holm_correction(out["p_value"])
     return out
+
+
+# ============================================================================ model statistik (inferensi)
+def reference_coding(Z: pd.DataFrame, prefixes: dict) -> tuple[pd.DataFrame, dict, dict]:
+    """Ubah one-hot penuh menjadi dummy coding: buang 1 kolom acuan per grup (kategori TERBANYAK).
+
+    Tanpa ini, jumlah dummy satu grup = 1 = intercept → kolinear sempurna (dummy variable trap).
+    Return: matriks tanpa kolom acuan, {grup: [kolom]}, {grup: kolom acuan}.
+    """
+    groups, refs = {}, {}
+    for name, prefix in prefixes.items():
+        cols = [c for c in Z.columns if c.startswith(prefix)]
+        if len(cols) > 1:
+            refs[name] = Z[cols].sum().idxmax()
+            cols = [c for c in cols if c != refs[name]]
+        groups[name] = cols
+    return Z.drop(columns=list(refs.values())), groups, refs
+
+
+def _rank_with_const(D: pd.DataFrame) -> int:
+    return int(np.linalg.matrix_rank(np.column_stack([np.ones(len(D)), D.to_numpy(float)])))
+
+
+def resolve_perfect_collinearity(D: pd.DataFrame, groups: dict) -> tuple[pd.DataFrame, dict, list]:
+    """Selama matriks (dengan intercept) tidak full-rank, buang GRUP fitur yang paling sedikit kolomnya
+    yang penghapusannya paling mengurangi kekurangan rank. Return: matriks, grup tersisa, grup yang dibuang."""
+    D, groups, dropped = D.copy(), dict(groups), []
+    while _rank_with_const(D) < D.shape[1] + 1:
+        cands = []
+        for g, cols in groups.items():
+            Dg = D.drop(columns=cols)
+            cands.append(((Dg.shape[1] + 1) - _rank_with_const(Dg), len(cols), g))
+        _, _, g = min(cands)
+        D = D.drop(columns=groups.pop(g))
+        dropped.append(g)
+    return D, groups, dropped
+
+
+def gvif(D: pd.DataFrame, groups: dict) -> pd.DataFrame:
+    """Generalized VIF (Fox & Monette, 1992) per GRUP fitur (mis. semua dummy satu kategorikal).
+
+    GVIF = det(R_grup) · det(R_lain) / det(R). Agar bisa dibandingkan antar grup dengan jumlah kolom berbeda,
+    dipakai GVIF^(1/(2·df)), yang setara dengan √VIF untuk fitur 1 kolom (ambang √10 ≈ 3,16 ≈ VIF 10).
+    """
+    R = np.corrcoef(D.to_numpy(float), rowvar=False)
+    cols = list(D.columns)
+    rows = {}
+    # errstate: BLAS di sebagian platform (mis. macOS Accelerate) menyalakan flag floating-point palsu saat
+    # dekomposisi LU walaupun hasilnya benar (sudah dicek dengan metode eigenvalue di notebook/test)
+    with np.errstate(all="ignore"):
+        ld = np.linalg.slogdet(R)[1]
+        for g, cs in groups.items():
+            idx = [cols.index(c) for c in cs]
+            rest = [i for i in range(len(cols)) if i not in idx]
+            val = float(np.exp(np.linalg.slogdet(R[np.ix_(idx, idx)])[1] + np.linalg.slogdet(R[np.ix_(rest, rest)])[1] - ld))
+            rows[g] = {"df": len(cs), "GVIF": val, "GVIF_adj": val ** (1 / (2 * len(cs)))}
+    return pd.DataFrame(rows).T.sort_values("GVIF_adj", ascending=False)
